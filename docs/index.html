@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101319">
+  <title>Stadia Haptic Bridge · ESP32-S3</title>
+  <meta name="description" content="面向 ESP32-S3 的 Stadia 手柄震动映射实验固件，提供线性参考与两种可选的低强度增强曲线。">
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #101319;
+      --panel: #181e27;
+      --panel-2: #202938;
+      --line: #303b4b;
+      --text: #edf2f8;
+      --muted: #a3afc0;
+      --accent: #9ce7c5;
+      --accent-2: #b9a7ff;
+      --warning: #ffd28e;
+      --radius: 18px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); line-height: 1.55; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap { width: min(1120px, calc(100% - 36px)); margin: 0 auto; }
+    header { padding: 26px 0 20px; border-bottom: 1px solid var(--line); }
+    .nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 750; letter-spacing: -.02em; }
+    .mark { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid #477d6b; background: #1d3a33; color: var(--accent); border-radius: 13px; font-weight: 900; }
+    .nav-links { display: flex; gap: 18px; font-size: 14px; color: var(--muted); }
+    .hero { padding: 64px 0 42px; display: grid; grid-template-columns: 1.2fr .8fr; gap: 28px; align-items: center; }
+    .eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: .16em; color: var(--accent); font-weight: 800; }
+    h1 { font-size: clamp(36px, 5vw, 64px); line-height: 1.02; margin: 14px 0 20px; letter-spacing: -.055em; }
+    .lead { max-width: 680px; color: var(--muted); font-size: 18px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+    .chip { padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 12px; }
+    .hero-art { background: linear-gradient(145deg, #1c3430, #201c37 70%, #181e27); border: 1px solid #355349; border-radius: 24px; min-height: 260px; padding: 22px; display: flex; flex-direction: column; justify-content: space-between; }
+    .wave { width: 100%; height: 150px; display: block; }
+    .wave path { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; }
+    .wave path:nth-child(2) { stroke: var(--accent-2); opacity: .85; stroke-width: 2; }
+    .hero-art small { color: var(--muted); }
+    section { padding: 28px 0; }
+    .section-head { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+    h2 { margin: 0; font-size: clamp(24px, 3vw, 34px); letter-spacing: -.035em; }
+    h3 { margin: 0 0 8px; font-size: 17px; }
+    p { margin: 8px 0; }
+    .muted { color: var(--muted); }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; min-width: 0; }
+    .profile-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .tag { border-radius: 999px; padding: 4px 8px; background: var(--panel-2); color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .tag.best { background: #1e4037; color: var(--accent); }
+    .formula { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--accent); overflow-wrap: anywhere; }
+    .install { margin-top: 14px; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+    esp-web-install-button { --esp-tools-button-color: #9ce7c5; --esp-tools-button-text-color: #101319; }
+    .secondary-button { display: inline-block; padding: 9px 13px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); background: var(--panel-2); cursor: pointer; }
+    .warning { border: 1px solid #725936; background: #2b251b; color: #f0d7ad; border-radius: 14px; padding: 14px 16px; margin: 18px 0; font-size: 13px; }
+    .lab { display: grid; grid-template-columns: 1fr 1.2fr; gap: 14px; }
+    .controls { display: grid; gap: 18px; }
+    .field { display: grid; gap: 8px; }
+    .field label { color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; gap: 10px; }
+    input[type="range"] { width: 100%; accent-color: var(--accent); }
+    select { color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; width: 100%; }
+    .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+    .metric { padding: 12px; border: 1px solid var(--line); background: var(--panel-2); border-radius: 12px; }
+    .metric small { display: block; color: var(--muted); }
+    .metric strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+    canvas { display: block; width: 100%; height: 250px; }
+    .plot-legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 99px; margin-right: 6px; background: var(--accent); }
+    .dot.purple { background: var(--accent-2); }
+    .steps { counter-reset: step; display: grid; gap: 12px; }
+    .step { display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start; }
+    .step::before { counter-increment: step; content: counter(step, decimal-leading-zero); color: var(--accent); border: 1px solid #426b5d; border-radius: 10px; padding: 4px 0; text-align: center; font-size: 12px; font-weight: 800; }
+    footer { margin-top: 38px; padding: 26px 0 42px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
+    @media (max-width: 800px) {
+      .hero, .lab { grid-template-columns: 1fr; }
+      .hero { padding-top: 42px; }
+      .grid { grid-template-columns: 1fr; }
+      .nav-links { gap: 10px; flex-wrap: wrap; }
+      .hero-art { min-height: 220px; }
+    }
+    @media (max-width: 480px) {
+      .nav { align-items: flex-start; flex-direction: column; }
+      .wrap { width: calc(100% - 24px); }
+      .section-head { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap nav">
+      <div class="brand"><span class="mark">SH</span><span>Stadia Haptic Bridge</span></div>
+      <nav class="nav-links" aria-label="导航">
+        <a href="#profiles">曲线固件</a>
+        <a href="#lab">曲线实验台</a>
+        <a href="#flash">刷入指南</a>
+        <a href="https://github.com/WuLinLee/Stadia/actions">云编译</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="hero">
+      <div>
+        <div class="eyebrow">ESP32-S3 · USB XUSB · BLE HOGP</div>
+        <h1>把震动映射<br>做成可验证的工程。</h1>
+        <p class="lead">一套独立编写的 Stadia 手柄桥接实验固件。把电脑发出的 Xbox 360 风格双马达强度映射为 Stadia BLE 输出，并将线性基线与可选增强曲线分别编译、测试和发布。</p>
+        <div class="chips">
+          <span class="chip">默认精确线性扩展</span>
+          <span class="chip">三种云编译变体</span>
+          <span class="chip">零值停止优先保留</span>
+          <span class="chip">ESP-IDF 6.0</span>
+        </div>
+      </div>
+      <div class="hero-art">
+        <div class="eyebrow">Amplitude mapping</div>
+        <svg class="wave" viewBox="0 0 440 150" role="img" aria-label="示意性震动映射波形">
+          <path d="M8 80 L38 80 L48 38 L58 121 L69 55 L79 99 L90 70 L113 70 L123 24 L133 128 L145 49 L155 105 L165 65 L190 65 L200 18 L210 132 L221 40 L233 113 L245 77 L272 77 L282 33 L294 124 L306 48 L318 106 L332 69 L352 69 L364 27 L376 124 L390 55 L403 94 L430 80"/>
+          <path d="M8 103 L32 103 L43 88 L54 113 L66 97 L82 103 L116 103 L128 76 L140 120 L153 83 L166 112 L184 103 L224 103 L237 72 L249 119 L263 91 L276 107 L300 103 L340 103 L352 80 L364 118 L378 88 L391 110 L430 103"/>
+        </svg>
+        <small>示意图仅表示强度映射与动态变化，不是 Stadia 原版云端波形采样。</small>
+      </div>
+    </div>
+
+    <div class="warning">
+      <strong>研究边界：</strong>目前没有公开证据能确定 Google Stadia 云游戏时期的完整服务端震动曲线。Reference 版本是可审计的线性基线；Gentle / Punch 是实验曲线，不是宣称已复刻 Google 私有算法。请先在自己的 ESP32-S3 与 Stadia 手柄上验证实际震感。
+    </div>
+
+    <section id="profiles">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">Cloud-built firmware</div>
+          <h2>选择映射版本</h2>
+        </div>
+        <p class="muted">浏览器安装需 Chrome / Edge、HTTPS 和原生 USB 数据线。</p>
+      </div>
+      <div class="grid">
+        <article class="card">
+          <div class="profile-top"><h3>Reference · 线性</h3><span class="tag best">推荐基线</span></div>
+          <p class="muted">不修改游戏请求强度的等级关系，保留 0 与满量程。最适合协议验证和 A/B 测量。</p>
+          <div class="formula">y = x × 257</div>
+          <div class="install">
+            <esp-web-install-button manifest="manifest-reference.json"></esp-web-install-button>
+            <a class="secondary-button" href="manifest-reference.json">Manifest</a>
+          </div>
+        </article>
+        <article class="card">
+          <div class="profile-top"><h3>Gentle · 温和增强</h3><span class="tag">实验曲线</span></div>
+          <p class="muted">指数 gamma = 0.90，略微抬高低/中强度等级，零点与满量程保持不变。</p>
+          <div class="formula">y = round(65535 × (x/255)^0.90)</div>
+          <div class="install">
+            <esp-web-install-button manifest="manifest-gentle.json"></esp-web-install-button>
+            <a class="secondary-button" href="manifest-gentle.json">Manifest</a>
+          </div>
+        </article>
+        <article class="card">
+          <div class="profile-top"><h3>Punch · 较强增强</h3><span class="tag">实验曲线</span></div>
+          <p class="muted">指数 gamma = 0.78，更多低/中强度输出。可能更有冲击感，也可能偏离游戏原始强度意图。</p>
+          <div class="formula">y = round(65535 × (x/255)^0.78)</div>
+          <div class="install">
+            <esp-web-install-button manifest="manifest-punch.json"></esp-web-install-button>
+            <a class="secondary-button" href="manifest-punch.json">Manifest</a>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="lab">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">Mapping workbench</div>
+          <h2>强度曲线实验台</h2>
+        </div>
+        <p class="muted">这是浏览器内的数学模拟器，不会实时改写已经刷入的固件。</p>
+      </div>
+      <div class="lab">
+        <div class="card controls">
+          <div class="field">
+            <label for="profile">映射配置</label>
+            <select id="profile">
+              <option value="reference">Reference · 线性</option>
+              <option value="gentle">Gentle · gamma 0.90</option>
+              <option value="punch">Punch · gamma 0.78</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="level">Xbox 输入强度 <strong id="input-value">128 / 255</strong></label>
+            <input id="level" type="range" min="0" max="255" value="128" step="1">
+          </div>
+          <div class="field">
+            <label for="motor">观察的马达通道</label>
+            <select id="motor">
+              <option value="strong">Strong · 大马达 / 低频目标通道</option>
+              <option value="weak">Weak · 小马达 / 高频目标通道</option>
+            </select>
+          </div>
+          <div class="metrics">
+            <div class="metric"><small>输出强度（16 bit）</small><strong id="output-value">32896</strong></div>
+            <div class="metric"><small>归一化输出</small><strong id="output-percent">50.2%</strong></div>
+            <div class="metric"><small>原始 Xbox byte</small><strong id="raw-byte">0x80</strong></div>
+            <div class="metric"><small>输出小端字节</small><strong id="output-hex">80 80</strong></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="profile-top"><h3>传递曲线</h3><span class="tag" id="curve-name">Reference</span></div>
+          <canvas id="curve" width="760" height="360" aria-label="Xbox 输入强度对 Stadia 输出强度的曲线"></canvas>
+          <div class="plot-legend">
+            <span><i class="dot"></i>选中映射</span>
+            <span><i class="dot purple"></i>线性参考</span>
+          </div>
+          <p class="muted" id="curve-note">线性映射在 128 → 32896，保留全部 256 个 USB 强度等级。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="flash">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">Install and verify</div>
+          <h2>刷入与测试</h2>
+        </div>
+      </div>
+      <div class="grid">
+        <div class="card">
+          <h3>01 · 硬件准备</h3>
+          <div class="steps">
+            <div class="step"><div>使用带原生 USB OTG 的 ESP32-S3 开发板和可传输数据的 USB 线。</div></div>
+            <div class="step"><div>将 Stadia 手柄切换到 Bluetooth 模式，并让它进入可配对状态。</div></div>
+            <div class="step"><div>先连接电脑刷写，完成后设备会重新枚举为 Xbox 360 兼容手柄。</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>02 · A/B 对照</h3>
+          <p class="muted">先使用 Reference。依次测试 0、1、8、16、32、64、128、192、224、255，然后对照 Gentle 与 Punch。</p>
+          <p class="muted">比较时固定游戏、场景、电量、握持方式和马达通道。注意记录游戏输出和手柄外壳加速度，不要仅凭固件编译成功就判定震感复刻成功。</p>
+        </div>
+        <div class="card">
+          <h3>03 · 获取源码与构建</h3>
+          <p class="muted">每个 push / PR 会运行三套强度公式测试，并通过 GitHub Actions 编译三个 ESP32-S3 完整镜像。</p>
+          <p><a href="https://github.com/WuLinLee/Stadia/actions">打开 Actions 下载构建产物 →</a></p>
+          <p><a href="https://github.com/WuLinLee/Stadia">查看源码仓库 →</a></p>
+        </div>
+      </div>
+      <div class="warning">
+        刷写前请确认板子是 ESP32-S3，且 USB 接在原生 USB 口；本工程按 4 MB Flash 配置生成完整刷写镜像。网页刷写会擦除所选分区/镜像覆盖范围内的数据。若遇到连接失败，先按手柄的配对流程重新进入 Bluetooth 配对模式。
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">Transparency</div>
+          <h2>我们明确知道什么</h2>
+        </div>
+      </div>
+      <div class="grid">
+        <div class="card"><h3>确定事实</h3><p class="muted">Xbox 360 风格输出报告提供 8 位强/弱马达值；Stadia HID 输出端使用两个 16 位小端数值。Reference 使用 x × 257 将 0–255 均匀扩展到 0–65535。</p></div>
+        <div class="card"><h3>可验证假设</h3><p class="muted">非线性 gamma 曲线可能在低强度下更容易感知，但会改写游戏请求的幅值关系；不同马达的物理响应也可能不同。</p></div>
+        <div class="card"><h3>仍未知</h3><p class="muted">Google Stadia 云端历史震动数据、内部强度算法和原版马达校准曲线尚未由公开源码证实。需要原始抓包或物理测量才能做严谨复刻。</p></div>
+      </div>
+    </section>
+
+    <footer>
+      <span>Stadia Haptic Bridge · ESP32-S3 research firmware</span>
+      <span>Independent implementation · Not affiliated with Google or Microsoft</span>
+    </footer>
+  </main>
+
+  <script>
+    (function () {
+      const profile = document.getElementById("profile");
+      const level = document.getElementById("level");
+      const motor = document.getElementById("motor");
+      const canvas = document.getElementById("curve");
+      const context = canvas.getContext("2d");
+      const names = {reference: "Reference", gentle: "Gentle", punch: "Punch"};
+      const gamma = {reference: 1.0, gentle: 0.90, punch: 0.78};
+      function mapValue(x, mode) {
+        if (mode === "reference") return x * 257;
+        if (x === 0) return 0;
+        if (x === 255) return 65535;
+        return Math.round(Math.pow(x / 255, gamma[mode]) * 65535);
+      }
+      function drawCurve() {
+        const box = canvas.getBoundingClientRect();
+        const ratio = window.devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.floor(box.width * ratio));
+        canvas.height = Math.max(1, Math.floor(box.height * ratio));
+        context.scale(ratio, ratio);
+        const width = box.width;
+        const height = box.height;
+        const left = 42;
+        const right = 12;
+        const top = 14;
+        const bottom = 31;
+        const plotW = width - left - right;
+        const plotH = height - top - bottom;
+        context.clearRect(0, 0, width, height);
+        context.font = "11px ui-sans-serif, system-ui";
+        context.strokeStyle = "#303b4b";
+        context.fillStyle = "#a3afc0";
+        context.lineWidth = 1;
+        for (let i = 0; i <= 4; i++) {
+          const y = top + plotH * i / 4;
+          context.beginPath();
+          context.moveTo(left, y);
+          context.lineTo(width - right, y);
+          context.stroke();
+          context.fillText(String(Math.round(100 - i * 25)) + "%", 4, y + 4);
+        }
+        [0, 64, 128, 192, 255].forEach(function (x) {
+          const px = left + plotW * x / 255;
+          context.beginPath();
+          context.moveTo(px, top);
+          context.lineTo(px, top + plotH);
+          context.stroke();
+          context.fillText(String(x), px - 9, height - 9);
+        });
+        function plot(mode, color, thickness) {
+          context.beginPath();
+          for (let x = 0; x <= 255; x++) {
+            const px = left + plotW * x / 255;
+            const py = top + plotH * (1 - mapValue(x, mode) / 65535);
+            if (x === 0) context.moveTo(px, py);
+            else context.lineTo(px, py);
+          }
+          context.strokeStyle = color;
+          context.lineWidth = thickness;
+          context.stroke();
+        }
+        plot("reference", "#b9a7ff", 1.5);
+        plot(profile.value, "#9ce7c5", 2.5);
+        const x = Number(level.value);
+        const py = top + plotH * (1 - mapValue(x, profile.value) / 65535);
+        const px = left + plotW * x / 255;
+        context.beginPath();
+        context.arc(px, py, 4, 0, Math.PI * 2);
+        context.fillStyle = "#edf2f8";
+        context.fill();
+        updateMetrics();
+      }
+      function updateMetrics() {
+        const x = Number(level.value);
+        const y = mapValue(x, profile.value);
+        const motorName = motor.value === "strong" ? "Strong" : "Weak";
+        document.getElementById("input-value").textContent = x + " / 255";
+        document.getElementById("output-value").textContent = String(y);
+        document.getElementById("output-percent").textContent = (y * 100 / 65535).toFixed(1) + "%";
+        document.getElementById("raw-byte").textContent = "0x" + x.toString(16).padStart(2, "0").toUpperCase();
+        document.getElementById("output-hex").textContent =
+          (y & 255).toString(16).padStart(2, "0").toUpperCase() + " " +
+          (y >> 8).toString(16).padStart(2, "0").toUpperCase();
+        document.getElementById("curve-name").textContent = names[profile.value] + " · " + motorName;
+        let note = "输出 " + y + " / 65535；零点与满量程端点保留。";
+        if (profile.value === "reference") {
+          note = "线性映射在 " + x + " → " + y + "，等价于重复字节 x × 257，保留 256 个输入等级。";
+        } else if (profile.value === "gentle") {
+          note = "gamma = 0.90：在保持 0 和 65535 端点的同时，对非零低/中强度作温和提升。";
+        } else {
+          note = "gamma = 0.78：提升幅度更明显；是否更接近实际云游戏震感，需要真机 A/B 测量。";
+        }
+        document.getElementById("curve-note").textContent = note;
+      }
+      profile.addEventListener("change", drawCurve);
+      level.addEventListener("input", drawCurve);
+      motor.addEventListener("change", updateMetrics);
+      window.addEventListener("resize", drawCurve);
+      drawCurve();
+    })();
+  </script>
+</body>
+</html>

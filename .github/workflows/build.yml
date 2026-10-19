@@ -1,0 +1,120 @@
+name: ESP32-S3 firmware and site
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-mapping:
+    name: Host-side mapping tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check all mapping profiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          for profile in 0 1 2; do
+            gcc -std=c11 -Wall -Wextra -Werror \
+              -D STADIA_RUMBLE_PROFILE=$profile \
+              -Imain main/rumble_map.c tests/test_rumble_map.c \
+              -lm -o "/tmp/test-rumble-$profile"
+            "/tmp/test-rumble-$profile"
+          done
+
+  build-firmware:
+    name: Build ${{ matrix.profile }} profile
+    needs: test-mapping
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: reference
+            profile_id: 0
+          - profile: gentle
+            profile_id: 1
+          - profile: punch
+            profile_id: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and merge ESP32-S3 image
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.0
+          target: esp32s3
+          command: >-
+            idf.py -B build-${{ matrix.profile }} -D STADIA_RUMBLE_PROFILE=${{ matrix.profile_id }} build &&
+            python -m esptool --chip esp32s3 merge_bin
+            --output build-${{ matrix.profile }}/firmware-${{ matrix.profile }}-merged.bin
+            --flash-mode dio --flash-size 4MB --flash-freq 80m
+            0x0 build-${{ matrix.profile }}/bootloader/bootloader.bin
+            0x8000 build-${{ matrix.profile }}/partition_table/partition-table.bin
+            0x10000 build-${{ matrix.profile }}/stadia-haptic-bridge.bin
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.profile }}
+          path: build-${{ matrix.profile }}/firmware-${{ matrix.profile }}-merged.bin
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-release:
+    name: Publish versioned firmware
+    needs: build-firmware
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: firmware-*
+          path: release
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Stadia Haptic Bridge ${{ github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          files: release/*.bin
+
+  deploy-pages:
+    name: Deploy install page
+    needs: build-firmware
+    if: ${{ needs.build-firmware.result == 'success' && vars.ENABLE_GITHUB_PAGES == 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: github-pages
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download freshly built firmware variants
+        uses: actions/download-artifact@v4
+        with:
+          pattern: firmware-*
+          path: docs
+          merge-multiple: true
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,6 @@
+{
+  "name": "Stadia Haptic Bridge - Punch",
+  "version": "1.0.0",
+  "new_install_prompt_erase": true,
+  "builds": [{"chipFamily": "ESP32-S3", "parts": [{"path": "firmware-punch-merged.bin", "offset": 0}]}]
+}
