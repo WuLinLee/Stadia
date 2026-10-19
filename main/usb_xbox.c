@@ -127,7 +127,7 @@ static void arm_out_endpoint(uint8_t rhport)
     }
     if (usbd_edpt_claim(rhport, s_usb.ep_out)) {
         if (!usbd_edpt_xfer(rhport, s_usb.ep_out,
-                             s_usb.out_buffer, sizeof(s_usb.out_buffer))) {
+                             s_usb.out_buffer, sizeof(s_usb.out_buffer), false)) {
             usbd_edpt_release(rhport, s_usb.ep_out);
         }
     }
@@ -257,7 +257,7 @@ static bool send_input_report(const uint8_t report[XBOX360_INPUT_REPORT_SIZE])
     }
     memcpy(s_usb.in_buffer, report, XBOX360_INPUT_REPORT_SIZE);
     if (!usbd_edpt_xfer(s_rhport, s_usb.ep_in,
-                        s_usb.in_buffer, XBOX360_INPUT_REPORT_SIZE)) {
+                        s_usb.in_buffer, XBOX360_INPUT_REPORT_SIZE, false)) {
         usbd_edpt_release(s_rhport, s_usb.ep_in);
         return false;
     }

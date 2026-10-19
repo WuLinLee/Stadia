@@ -20,6 +20,9 @@
 #include "rumble_map.h"
 #include "usb_xbox.h"
 
+/* Implemented by ESP-IDF's NimBLE store/config component. */
+void ble_store_config_init(void);
+
 static const char *TAG = "STADIA_BLE";
 #define MAX_REPORT_CHARS 12u
 #define STADIA_HID_SERVICE 0x1812u
