@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 #include "tinyusb.h"
 #include "tusb.h"
+#include "class/hid/hid.h"
 #include "device/usbd.h"
 #include "device/usbd_pvt.h"
 
@@ -243,6 +244,45 @@ usbd_class_driver_t const *usbd_app_driver_get_cb(uint8_t *driver_count)
     drivers[0] = s_xbox_driver;
     *driver_count = 1;
     return drivers;
+}
+
+/*
+ * ESP-TinyUSB's optional standard HID class is enabled by the ESP-IDF
+ * component configuration. This firmware uses its own XUSB class driver and
+ * exposes no standard HID interface, so these callbacks are link-time
+ * fallbacks only and must never be used as the XUSB report path.
+ */
+static const uint8_t s_unused_hid_report_descriptor[] = {
+    0x05, 0x01, 0x09, 0x00, 0xA1, 0x01, 0xC0
+};
+
+uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
+{
+    (void)instance;
+    return s_unused_hid_report_descriptor;
+}
+
+uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,
+                               hid_report_type_t report_type, uint8_t *buffer,
+                               uint16_t requested_length)
+{
+    (void)instance;
+    (void)report_id;
+    (void)report_type;
+    (void)buffer;
+    (void)requested_length;
+    return 0;
+}
+
+void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
+                           hid_report_type_t report_type, uint8_t const *buffer,
+                           uint16_t buffer_size)
+{
+    (void)instance;
+    (void)report_id;
+    (void)report_type;
+    (void)buffer;
+    (void)buffer_size;
 }
 
 static bool send_input_report(const uint8_t report[XBOX360_INPUT_REPORT_SIZE])
