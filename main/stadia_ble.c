@@ -91,9 +91,18 @@ static void clear_gatt_state(void)
     s_output_value = 0;
     memset(s_reports, 0, sizeof(s_reports));
     portENTER_CRITICAL(&s_rumble_mux);
+    memset(s_rumble_target, 0, sizeof(s_rumble_target));
+    s_rumble_target_valid = true;
+    s_rumble_dirty = true;
     s_rumble_write_active = false;
-    if (s_rumble_target_valid) s_rumble_dirty = true;
+    s_retry_count = 0;
     portEXIT_CRITICAL(&s_rumble_mux);
+    /* Do not replay a stale non-zero level after a reconnect. */
+    if (s_rumble_queue != NULL) {
+        (void)xQueueReset(s_rumble_queue);
+        const uint8_t zero_report[4] = {0};
+        (void)xQueueSend(s_rumble_queue, zero_report, 0);
+    }
 }
 
 static void publish_neutral_input(void)
@@ -123,7 +132,7 @@ static void begin_scan(void)
     const struct ble_gap_disc_params parameters = {
         .itvl = 0x50,
         .window = 0x30,
-        .filter_duplicates = 1,
+        .filter_duplicates = 0,
         .passive = 0
     };
     int rc = ble_gap_disc(s_own_address_type, BLE_HS_FOREVER, &parameters,
@@ -372,8 +381,9 @@ static void begin_security(void)
 
 static void xbox_axis(uint8_t raw, bool invert, int16_t *out)
 {
-    int32_t value = invert ? 255 - (int32_t)raw : (int32_t)raw;
-    int32_t centered = value - 128;
+    int32_t centered = (int32_t)raw - 128;
+    if (centered < -127) centered = -127;
+    if (invert) centered = -centered;
     int32_t scaled = (centered * 32767) / 127;
     if (scaled < -32768) scaled = -32768;
     if (scaled > 32767) scaled = 32767;
